@@ -72,8 +72,8 @@ static class DotExporter
 
     private static string BuildLabel(BasicBlock b) => b.Kind switch
     {
-        BlockKind.Start => "Start",
-        BlockKind.End   => "End",
+        BlockKind.Start => "Начало",
+        BlockKind.End   => "Конец",
         _ => BuildInstructionLabel(b)
     };
 
@@ -87,11 +87,24 @@ static class DotExporter
         bool centered = b.Terminator == TerminatorKind.Branch;
         string br = centered ? "\\n" : "\\l";
 
-        var parts = b.Instructions.Select(i => Esc(i.Text ?? "")).ToList();
+        var parts = b.Instructions
+            .Select(i => Esc(FormatInstruction(i.Text, centered)))
+            .ToList();
 
         return centered
             ? string.Join(br, parts)
             : string.Join("", parts.Select(p => p + br));
+    }
+
+    private static string FormatInstruction(string? text, bool isBranch)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        if (!isBranch) return text;
+
+        if ((text.StartsWith("if (") || text.StartsWith("while (")) && text.EndsWith(")"))
+            return text.Substring(text.IndexOf('(') + 1, text.Length - text.IndexOf('(') - 2);
+
+        return text;
     }
 
     private static string ShapeFor(BasicBlock b) => b.Kind switch

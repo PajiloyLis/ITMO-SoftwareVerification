@@ -4,7 +4,7 @@ class ControlFlowGraph
 {
     public BasicBlock Start = null!;
     public BasicBlock End   = null!;
-    public BasicBlock Entry = null!; // первый исполняемый блок (после Start)
+    public BasicBlock Entry = null!;
 
     public List<BasicBlock> Blocks = new();
 

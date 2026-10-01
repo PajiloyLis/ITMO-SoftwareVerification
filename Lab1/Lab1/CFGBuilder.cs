@@ -16,12 +16,63 @@ class CFGBuilder
         public BasicBlock Exit = null!; // куда идёт break
         public bool IsLoop;
     }
-    
+
     private void ConnectToEnd(BasicBlock current)
     {
         current = EnsureFreshBlock(current);
         current.Terminator = TerminatorKind.Return;
         _cfg.AddEdge(current, _end, EdgeKind.Return);
+    }
+
+    private void CollapseEmptyPassThroughBlocks()
+    {
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+
+            foreach (var b in _cfg.Blocks.ToList())
+            {
+                if (b.Kind != BlockKind.Normal) continue;
+                if (b.Instructions.Count > 0) continue;
+                if (b.Terminator != TerminatorKind.Fallthrough) continue;
+                if (b.Successors.Count != 1) continue;
+
+                var succ = b.Successors[0];
+                if (succ.Kind != EdgeKind.Fallthrough) continue;
+
+                var target = succ.To;
+
+                // убираем ребро b -> target
+                target.Predecessors.Remove(succ);
+
+                // перенаправляем всех предшественников b прямо в target
+                foreach (var pred in b.Predecessors.ToList())
+                {
+                    pred.From.Successors.Remove(pred);
+
+                    // не создаём дубликат, если такое ребро уже есть
+                    bool exists = target.Predecessors.Any(e => e.From == pred.From && e.Kind == pred.Kind);
+
+                    if (!exists)
+                    {
+                        var newEdge = new Edge(pred.From, target, pred.Kind, pred.Label);
+                        pred.From.Successors.Add(newEdge);
+                        target.Predecessors.Add(newEdge);
+                    }
+                }
+
+                b.Predecessors.Clear();
+                b.Successors.Clear();
+                _cfg.Blocks.Remove(b);
+
+                // если схлопнули Entry — обновим ссылку
+                if (_cfg.Entry == b) _cfg.Entry = target;
+
+                changed = true;
+                break;
+            }
+        }
     }
 
     private readonly Stack<BreakableContext> _contexts = new();
@@ -41,8 +92,12 @@ class CFGBuilder
         _nextId = 0;
         _contexts.Clear();
 
-        _start = NewBlock(); _start.Kind = BlockKind.Start; _cfg.Start = _start;
-        _end   = NewBlock(); _end.Kind   = BlockKind.End;   _cfg.End   = _end;
+        _start = NewBlock();
+        _start.Kind = BlockKind.Start;
+        _cfg.Start = _start;
+        _end = NewBlock();
+        _end.Kind = BlockKind.End;
+        _cfg.End = _end;
 
         var entry = NewBlock();
         _cfg.Entry = entry;
@@ -66,7 +121,8 @@ class CFGBuilder
         {
             ConnectToEnd(entry);
         }
-
+        
+        CollapseEmptyPassThroughBlocks();
         return _cfg;
     }
 
@@ -76,8 +132,12 @@ class CFGBuilder
         _nextId = 0;
         _contexts.Clear();
 
-        _start = NewBlock(); _start.Kind = BlockKind.Start; _cfg.Start = _start;
-        _end   = NewBlock(); _end.Kind   = BlockKind.End;   _cfg.End   = _end;
+        _start = NewBlock();
+        _start.Kind = BlockKind.Start;
+        _cfg.Start = _start;
+        _end = NewBlock();
+        _end.Kind = BlockKind.End;
+        _cfg.End = _end;
 
         var entry = NewBlock();
         _cfg.Entry = entry;
@@ -86,7 +146,9 @@ class CFGBuilder
         var after = VisitStatement(body, entry);
         if (after != null)
             ConnectToEnd(after);
-
+        
+        CollapseEmptyPassThroughBlocks();
+        
         return _cfg;
     }
 
@@ -155,6 +217,7 @@ class CFGBuilder
             if (current == null) break;
             current = VisitStatement(s, current);
         }
+
         return current;
     }
 
@@ -365,7 +428,7 @@ class CFGBuilder
         _contexts.Pop();
         return exit;
     }
-    
+
     private BasicBlock EnsureFreshBlock(BasicBlock current)
     {
         if (current.Instructions.Count == 0)
