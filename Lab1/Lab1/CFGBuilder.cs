@@ -12,8 +12,8 @@ class CFGBuilder
 
     private class BreakableContext
     {
-        public BasicBlock? Header; // куда идёт continue (только у циклов)
-        public BasicBlock Exit = null!; // куда идёт break
+        public BasicBlock? Header;
+        public BasicBlock Exit = null!;
         public bool IsLoop;
     }
 
@@ -43,15 +43,12 @@ class CFGBuilder
 
                 var target = succ.To;
 
-                // убираем ребро b -> target
                 target.Predecessors.Remove(succ);
 
-                // перенаправляем всех предшественников b прямо в target
                 foreach (var pred in b.Predecessors.ToList())
                 {
                     pred.From.Successors.Remove(pred);
 
-                    // не создаём дубликат, если такое ребро уже есть
                     bool exists = target.Predecessors.Any(e => e.From == pred.From && e.Kind == pred.Kind);
 
                     if (!exists)
@@ -66,7 +63,6 @@ class CFGBuilder
                 b.Successors.Clear();
                 _cfg.Blocks.Remove(b);
 
-                // если схлопнули Entry — обновим ссылку
                 if (_cfg.Entry == b) _cfg.Entry = target;
 
                 changed = true;
@@ -83,8 +79,6 @@ class CFGBuilder
         _cfg.Blocks.Add(b);
         return b;
     }
-
-    // === Точки входа ===
 
     public ControlFlowGraph Build(MethodDeclarationSyntax method)
     {
@@ -152,8 +146,6 @@ class CFGBuilder
         return _cfg;
     }
 
-    // === Главный обход ===
-
     private BasicBlock? VisitStatement(StatementSyntax stmt, BasicBlock? current)
     {
         if (current == null) return null;
@@ -204,7 +196,6 @@ class CFGBuilder
                 return VisitSwitch(sw, current);
 
             default:
-                // fallback: неизвестный оператор — как одна инструкция
                 current.Instructions.Add(new Instruction(stmt.ToString().Trim(), stmt));
                 return current;
         }
