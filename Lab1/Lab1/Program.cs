@@ -11,7 +11,7 @@ class Program
     {
         string saveImageDir = "./images";
         string saveDotDir = "./dots";
-        string imageFormat = "png";
+        string imageFormat = "pdf";
 
         while (true)
         {
@@ -56,7 +56,7 @@ class Program
                     if (fmt is "png" or "svg" or "pdf")
                         imageFormat = fmt;
                     else
-                        Console.WriteLine($"Некорректный формат, оставляю {imageFormat}");
+                        Console.WriteLine("Некорректный формат");
                     Pause();
                     break;
 
@@ -77,7 +77,7 @@ class Program
         Console.Clear();
         Console.WriteLine("Способ ввода:");
         Console.WriteLine("  1. Из файла");
-        Console.WriteLine("  2. С клавиатуры (завершить Ctrl+Enter)");
+        Console.WriteLine("  2. С клавиатуры (завершить Ctrl+D на Linux, Ctrl+Z на Windows)");
         Console.Write("> ");
 
         var mode = Console.ReadLine()?.Trim();
@@ -93,6 +93,7 @@ class Program
                 Pause();
                 return;
             }
+
             code = File.ReadAllText(path);
         }
         else if (mode == "2")
@@ -114,11 +115,29 @@ class Program
             return;
         }
 
+        Console.WriteLine();
+        Console.WriteLine("Что строить?");
+        Console.WriteLine("  1. Только CFG");
+        Console.WriteLine("  2. Только ASG");
+        Console.WriteLine("  3. И CFG, и ASG");
+        Console.Write("> ");
+        var what = Console.ReadLine()?.Trim();
+
+        bool buildCfg = what is "1" or "3";
+        bool buildAsg = what is "2" or "3";
+        if (!buildCfg && !buildAsg)
+        {
+            Console.WriteLine("Отмена.");
+            Pause();
+            return;
+        }
+
         Directory.CreateDirectory(saveDotDir);
         Directory.CreateDirectory(saveImageDir);
 
         var tree = CSharpSyntaxTree.ParseText(code);
         var root = tree.GetRoot();
+        var semantic = new SemanticContext(tree);
 
         var methods = root.DescendantNodes().OfType<MethodDeclarationSyntax>().ToList();
         if (methods.Count == 0)
@@ -130,29 +149,41 @@ class Program
 
         foreach (var method in methods)
         {
-            var builder = new CFGBuilder();
-            var cfg = builder.Build(method);
-
             string name = method.Identifier.Text;
             Console.WriteLine($"=== {name} ===");
 
-            string dotPath = Path.Combine(saveDotDir, name + ".dot");
-            string imgPath = Path.Combine(saveImageDir, name + "." + imageFormat);
+            if (buildCfg)
+            {
+                var cfg = new CfgBuilder().Build(method);
+                string dotPath = Path.Combine(saveDotDir, name + ".cfg.dot");
+                string imgPath = Path.Combine(saveImageDir, name + ".cfg." + imageFormat);
 
-            DotExporter.SaveDot(cfg, dotPath, name);
-            Console.WriteLine($"  dot: {dotPath}");
+                DotExporter.SaveDot(cfg, dotPath, name);
+                Console.WriteLine($"  cfg dot: {dotPath}");
+                Console.WriteLine(DotExporter.Render(dotPath, imgPath, imageFormat)
+                    ? $"  cfg img: {imgPath}"
+                    : "  cfg img: не удалось (проверьте, что dot в PATH)");
+            }
 
-            if (DotExporter.Render(dotPath, imgPath, imageFormat))
-                Console.WriteLine($"  img: {imgPath}");
-            else
-                Console.WriteLine("  img: не удалось (проверьте, что dot в PATH)");
+            if (buildAsg)
+            {
+                var asg = new AsgBuilder().Build(method);
+                string dotPath = Path.Combine(saveDotDir, name + ".asg.dot");
+                string imgPath = Path.Combine(saveImageDir, name + ".asg." + imageFormat);
+
+                DotExporter.SaveAsgDot(asg, dotPath, name + " (ASG)");
+                Console.WriteLine($"  asg dot: {dotPath}");
+                Console.WriteLine(DotExporter.Render(dotPath, imgPath, imageFormat)
+                    ? $"  asg img: {imgPath}"
+                    : "  asg img: не удалось (проверьте, что dot в PATH)");
+            }
         }
 
         Console.WriteLine();
         Console.WriteLine("Готово.");
         Pause();
     }
-    
+
     static string ReadMultiLine()
     {
         var sb = new StringBuilder();
@@ -175,49 +206,7 @@ class Program
         Console.WriteLine(new string('-', 60));
         return sb.ToString();
     }
-
-    // static string ReadUntilCtrlEnter()
-    // {
-    //     var sb = new StringBuilder();
-    //
-    //     while (true)
-    //     {
-    //         var key = Console.ReadKey(intercept: true);
-    //         
-    //         if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Control) != 0)
-    //         {
-    //             Console.WriteLine();
-    //             break;
-    //         }
-    //         
-    //         if (key.Key == ConsoleKey.Enter)
-    //         {
-    //             sb.Append('\n');
-    //             Console.WriteLine();
-    //             continue;
-    //         }
-    //
-    //         if (key.Key == ConsoleKey.Backspace)
-    //         {
-    //             if (sb.Length > 0 && sb[^1] != '\n')
-    //             {
-    //                 sb.Length--;
-    //                 Console.Write("\b \b");
-    //             }
-    //             continue;
-    //         }
-    //
-    //         
-    //         if (char.IsControl(key.KeyChar) && key.KeyChar != '\t')
-    //             continue;
-    //
-    //         sb.Append(key.KeyChar);
-    //         Console.Write(key.KeyChar);
-    //     }
-    //
-    //     return sb.ToString();
-    // }
-
+    
     static void Pause()
     {
         Console.WriteLine("Нажмите любую клавишу...");

@@ -10,7 +10,7 @@ class ControlFlowGraph
 
     public void AddEdge(BasicBlock from, BasicBlock to, EdgeKind kind, string? label = null)
     {
-        var edge = new Edge(from, to, kind, label);
+        var edge = new CfgEdge(from, to, kind, label);
         from.Successors.Add(edge);
         to.Predecessors.Add(edge);
     }

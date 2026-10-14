@@ -13,13 +13,13 @@ enum EdgeKind
     Exception    
 }
 
-class Edge
+class CfgEdge
 {
     public BasicBlock From, To;
     public EdgeKind Kind;
     public string? Label;
     
-    public Edge(BasicBlock from, BasicBlock to, EdgeKind kind, string? label = null)
+    public CfgEdge(BasicBlock from, BasicBlock to, EdgeKind kind, string? label = null)
     {
         From = from;
         To = to;

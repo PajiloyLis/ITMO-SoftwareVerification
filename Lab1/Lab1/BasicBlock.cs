@@ -24,6 +24,6 @@ class BasicBlock
     public List<Instruction> Instructions = new List<Instruction>();
     public TerminatorKind Terminator = TerminatorKind.Fallthrough;
 
-    public List<Edge> Successors = new List<Edge>();
-    public List<Edge> Predecessors = new List<Edge>();
+    public List<CfgEdge> Successors = new List<CfgEdge>();
+    public List<CfgEdge> Predecessors = new List<CfgEdge>();
 }

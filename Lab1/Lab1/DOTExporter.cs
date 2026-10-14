@@ -14,7 +14,7 @@ static class DotExporter
         sb.AppendLine("  edge [fontname=\"Consolas\", fontsize=9];");
         sb.AppendLine();
 
-        
+
         foreach (var b in cfg.Blocks)
         {
             string label = BuildLabel(b);
@@ -27,8 +27,8 @@ static class DotExporter
         sb.AppendLine();
 
         foreach (var b in cfg.Blocks)
-            foreach (var e in b.Successors)
-                sb.AppendLine($"  B{b.Id} -> B{e.To.Id}{EdgeAttributes(e)};");
+        foreach (var e in b.Successors)
+            sb.AppendLine($"  B{b.Id} -> B{e.To.Id}{EdgeAttributes(e)};");
 
         sb.AppendLine("}");
         return sb.ToString();
@@ -73,7 +73,7 @@ static class DotExporter
     private static string BuildLabel(BasicBlock b) => b.Kind switch
     {
         BlockKind.Start => "Начало",
-        BlockKind.End   => "Конец",
+        BlockKind.End => "Конец",
         _ => BuildInstructionLabel(b)
     };
 
@@ -120,18 +120,16 @@ static class DotExporter
     private static string StyleFor(BasicBlock b) =>
         b.Kind is BlockKind.Start or BlockKind.End ? "rounded" : "";
 
-    // Все рёбра — сплошные. Подписи у рёбер тоже убраны.
-    private static string EdgeAttributes(Edge e)
+    private static string EdgeAttributes(CfgEdge e)
     {
         var attrs = new List<string>();
 
-        // подписи, которые несут смысл
         string? label = e.Label ?? e.Kind switch
         {
-            EdgeKind.True     => "true",
-            EdgeKind.False    => "false",
-            EdgeKind.BackEdge => null,   // back обычно и так понятен по форме
-            EdgeKind.Break    => "break",
+            EdgeKind.True => "true",
+            EdgeKind.False => "false",
+            EdgeKind.BackEdge => null,
+            EdgeKind.Break => "break",
             EdgeKind.Continue => "continue",
             _ => null
         };
@@ -139,13 +137,67 @@ static class DotExporter
         if (!string.IsNullOrEmpty(label))
             attrs.Add($"label=\"{Esc(label)}\"");
 
-        // никаких style=dashed/dotted — всё сплошное
         return attrs.Count > 0 ? " [" + string.Join(", ", attrs) + "]" : "";
     }
 
     private static string Esc(string s) =>
         s.Replace("\\", "\\\\")
-         .Replace("\"", "\\\"")
-         .Replace("\r", "")
-         .Replace("\n", "\\n");
+            .Replace("\"", "\\\"")
+            .Replace("\r", "")
+            .Replace("\n", "\\n");
+
+    public static string AsgToDot(AbstractSemanticGraph graph, string title = "ASG")
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"digraph \"{Esc(title)}\" {{");
+        sb.AppendLine("  rankdir=TB;");
+        sb.AppendLine("  node [fontname=\"Consolas\", fontsize=10];");
+        sb.AppendLine("  edge [fontname=\"Consolas\", fontsize=9];");
+        sb.AppendLine();
+
+        foreach (var n in graph.Nodes)
+        {
+            string shape = n.Kind switch
+            {
+                AsgNodeKind.Method => "folder",
+                AsgNodeKind.Identifier => "ellipse",
+                AsgNodeKind.Literal => "plaintext",
+                AsgNodeKind.Type => "component",
+                AsgNodeKind.VariableDeclaration => "box",
+                _ => "box"
+            };
+
+            string html = BuildHtmlLabel(n);
+            sb.AppendLine($"  N{n.Id} [label={html}, shape={shape}];");
+        }
+
+        sb.AppendLine();
+
+        foreach (var n in graph.Nodes)
+        foreach (var e in n.Out)
+            sb.AppendLine($"  N{n.Id} -> N{e.To.Id};");
+
+        sb.AppendLine("}");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// HTML-метка вида:
+    ///   <B>Kind</B><BR/>value
+    /// Обратите внимание: label без кавычек, потому что это HTML-label.
+    /// </summary>
+    private static string BuildHtmlLabel(AsgNode n)
+    {
+        string kind = EscHtml(n.Kind.ToString());
+        string value = n.Label is null or "" ? "" : $"<BR/>{EscHtml(n.Label)}";
+        return $"<<B>{kind}</B>{value}>";
+    }
+
+    private static string EscHtml(string s) =>
+        s.Replace("&", "&amp;")
+            .Replace("<", "&lt;")
+            .Replace(">", "&gt;");
+
+    public static void SaveAsgDot(AbstractSemanticGraph graph, string path, string title = "ASG")
+        => File.WriteAllText(path, AsgToDot(graph, title));
 }

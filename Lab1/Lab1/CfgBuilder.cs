@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Lab1;
 
-class CFGBuilder
+class CfgBuilder
 {
     private ControlFlowGraph _cfg = null!;
     private int _nextId;
@@ -38,12 +38,12 @@ class CFGBuilder
                 if (b.Terminator != TerminatorKind.Fallthrough) continue;
                 if (b.Successors.Count != 1) continue;
 
-                var succ = b.Successors[0];
-                if (succ.Kind != EdgeKind.Fallthrough) continue;
+                var successor = b.Successors[0];
+                if (successor.Kind != EdgeKind.Fallthrough) continue;
 
-                var target = succ.To;
+                var target = successor.To;
 
-                target.Predecessors.Remove(succ);
+                target.Predecessors.Remove(successor);
 
                 foreach (var pred in b.Predecessors.ToList())
                 {
@@ -53,7 +53,7 @@ class CFGBuilder
 
                     if (!exists)
                     {
-                        var newEdge = new Edge(pred.From, target, pred.Kind, pred.Label);
+                        var newEdge = new CfgEdge(pred.From, target, pred.Kind, pred.Label);
                         pred.From.Successors.Add(newEdge);
                         target.Predecessors.Add(newEdge);
                     }
@@ -212,12 +212,10 @@ class CFGBuilder
         return current;
     }
 
-    // === if ===
-
     private BasicBlock? VisitIf(IfStatementSyntax ifS, BasicBlock current)
     {
         current = EnsureFreshBlock(current);
-        current.Instructions.Add(new Instruction($"if ({ifS.Condition})", ifS.Condition));
+        current.Instructions.Add(new Instruction($"{ifS.Condition}", ifS.Condition));
         current.Terminator = TerminatorKind.Branch;
 
         var thenBlock = NewBlock();
@@ -241,13 +239,12 @@ class CFGBuilder
         return mergeBlock;
     }
 
-    // === while ===
 
     private BasicBlock? VisitWhile(WhileStatementSyntax w, BasicBlock current)
     {
         current = EnsureFreshBlock(current);
         var header = current;
-        header.Instructions.Add(new Instruction($"while ({w.Condition})", w.Condition));
+        header.Instructions.Add(new Instruction($"{w.Condition}", w.Condition));
         header.Terminator = TerminatorKind.Branch;
 
         var body = NewBlock();
@@ -266,7 +263,6 @@ class CFGBuilder
         return exit;
     }
 
-    // === do-while ===
 
     private BasicBlock? VisitDo(DoStatementSyntax d, BasicBlock current)
     {
@@ -292,11 +288,9 @@ class CFGBuilder
         return exit;
     }
 
-    // === for ===
 
     private BasicBlock? VisitFor(ForStatementSyntax f, BasicBlock current)
     {
-        // init попадает в текущий блок
         if (f.Declaration != null)
             current.Instructions.Add(new Instruction(f.Declaration.ToString().TrimEnd(';'), f.Declaration));
         foreach (var init in f.Initializers)
@@ -318,12 +312,10 @@ class CFGBuilder
         }
         else
         {
-            // for (;;) — бесконечный
             header.Terminator = TerminatorKind.Goto;
             _cfg.AddEdge(header, body, EdgeKind.Fallthrough);
         }
 
-        // ВАЖНО: continue в for идёт в incr, а не в header
         _contexts.Push(new BreakableContext { Header = incr, Exit = exit, IsLoop = true });
         var afterBody = VisitStatement(f.Statement, body);
         _contexts.Pop();
@@ -338,7 +330,6 @@ class CFGBuilder
         return exit;
     }
 
-    // === foreach ===
 
     private BasicBlock? VisitForEach(ForEachStatementSyntax fe, BasicBlock current)
     {
@@ -364,7 +355,6 @@ class CFGBuilder
         return exit;
     }
 
-    // === break / continue ===
 
     private BasicBlock? VisitBreak(BasicBlock current)
     {
@@ -391,8 +381,6 @@ class CFGBuilder
         _cfg.AddEdge(current, loop.Header!, EdgeKind.Continue);
         return null;
     }
-
-    // === switch ===
 
     private BasicBlock? VisitSwitch(SwitchStatementSyntax sw, BasicBlock current)
     {
