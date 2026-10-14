@@ -20,6 +20,12 @@ enum AsgNodeKind
     MethodName,
     ForEach,
     ForEachVariable,
+    ObjectCreation,
+    ArrayCreation,
+    ArraySize,
+    FieldAccess,
+    FieldName,
+    ElementAccess,
 }
 
 class AsgNode

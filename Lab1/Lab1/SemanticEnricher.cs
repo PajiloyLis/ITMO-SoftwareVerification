@@ -12,7 +12,14 @@ class SemanticEnricher
     public void Enrich(AbstractSemanticGraph graph)
     {
         foreach (var node in graph.Nodes)
+        {
+            if (node.Kind == AsgNodeKind.Type) continue; // отложим Type на второй проход
             EnrichNode(node);
+        }
+
+        // Проход 2: Type-узлы — им нужен уже готовый Symbol у родителя
+        foreach (var node in graph.Nodes.Where(n => n.Kind == AsgNodeKind.Type))
+            FillType(node);
     }
 
     private void EnrichNode(AsgNode node)
@@ -47,9 +54,32 @@ class SemanticEnricher
             case AsgNodeKind.ForEachVariable:
                 FillDeclaredVariable(node);
                 break;
+            case AsgNodeKind.ObjectCreation:
+                FillObjectCreation(node);
+                break;
+            
+            case AsgNodeKind.ArrayCreation:
+                FillArrayCreation(node);
+                break;
+            
+            case AsgNodeKind.FieldAccess:
+                FillFieldAccess(node);
+                break;
+
+            case AsgNodeKind.FieldName:
+                FillSymbol(node);   // переиспользуем существующий метод
+                break;
+            
+            case AsgNodeKind.ElementAccess:
+                FillElementAccess(node);
+                break;
+            
+            case AsgNodeKind.Parameter:
+                FillParameter(node);
+                break;
         }
     }
-    
+
     private void FillSymbol(AsgNode node)
     {
         var symbol = _model.GetSymbolInfo(node.Source!).Symbol;
@@ -92,7 +122,7 @@ class SemanticEnricher
                 break;
         }
     }
-    
+
     private void FillInvocation(AsgNode node)
     {
         var inv = (InvocationExpressionSyntax)node.Source!;
@@ -125,7 +155,7 @@ class SemanticEnricher
             // опционально: methodNameNode.Label = $"{symbol.ContainingType.Name}.{symbol.Name}";
         }
     }
-    
+
     private void FillArgument(AsgNode node)
     {
         var arg = (ArgumentSyntax)node.Source!;
@@ -148,23 +178,23 @@ class SemanticEnricher
             typeNode.Label = FormatType(type);
         }
     }
-    
+
     private void FillType(AsgNode node)
     {
         // Если узел уже заполнен — не трогаем
-        if (node.Label != "?" && node.Label != "var") return;
+        if (node.Label is not null and not "?" and not "var") return;
 
         // Смотрим родителя: Type может относиться к VariableDeclaration, Argument, Invocation...
-        var parent = node.In.ParentNode;
+        var parent = node.In.FirstOrDefault()?.From;
         if (parent == null) return;
 
         ITypeSymbol? type = parent.Kind switch
         {
             AsgNodeKind.VariableDeclaration => GetTypeForDeclarator(parent),
-            AsgNodeKind.ForEachVariable     => GetTypeForForEach(parent),
-            AsgNodeKind.Argument            => GetTypeForArgument(parent),
-            AsgNodeKind.Invocation          => GetReturnTypeForInvocation(parent),
-            AsgNodeKind.Parameter           => GetTypeForParameter(parent),
+            AsgNodeKind.ForEachVariable => GetTypeForForEach(parent),
+            AsgNodeKind.Argument => GetTypeForArgument(parent),
+            AsgNodeKind.Invocation => GetReturnTypeForInvocation(parent),
+            AsgNodeKind.Parameter => GetTypeForParameter(parent),
             _ => null
         };
 
@@ -175,12 +205,209 @@ class SemanticEnricher
             node.Label = FormatType(type);
         }
     }
-    
+
     private static string FormatType(ITypeSymbol type)
     {
         var name = type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
         if (type.NullableAnnotation == NullableAnnotation.Annotated && !name.EndsWith("?"))
             name += "?";
         return name;
+    }
+
+    private void FillMethod(AsgNode node)
+    {
+        if (node.Source is not MethodDeclarationSyntax m) return;
+        var symbol = _model.GetDeclaredSymbol(m) as IMethodSymbol;
+        if (symbol == null) return;
+
+        node.Symbol = symbol;
+        node.InferredType = symbol.ReturnType;
+        node.Nullable = symbol.ReturnType.NullableAnnotation;
+        node.IsStatic = symbol.IsStatic;
+    }
+
+    private void FillDeclaredVariable(AsgNode node)
+    {
+        ISymbol? symbol = node.Source switch
+        {
+            VariableDeclaratorSyntax decl => _model.GetDeclaredSymbol(decl),
+            ForEachStatementSyntax fe => _model.GetDeclaredSymbol(fe),
+            _ => null
+        };
+
+        if (symbol == null) return;
+        node.Symbol = symbol;
+
+        ITypeSymbol? type = symbol switch
+        {
+            ILocalSymbol l => l.Type,
+            _ => null
+        };
+        if (type != null)
+        {
+            node.InferredType = type;
+            node.Nullable = type.NullableAnnotation;
+        }
+    }
+    
+    private void FillObjectCreation(AsgNode node)
+    {
+        ITypeSymbol? type;
+        IMethodSymbol? ctor;
+
+        switch (node.Source)
+        {
+            case ObjectCreationExpressionSyntax oce:
+                type = _model.GetTypeInfo(oce).Type;
+                ctor = _model.GetSymbolInfo(oce).Symbol as IMethodSymbol;
+                break;
+            case ImplicitObjectCreationExpressionSyntax ioce:
+                type = _model.GetTypeInfo(ioce).Type;
+                ctor = _model.GetSymbolInfo(ioce).Symbol as IMethodSymbol;
+                break;
+            default:
+                return;
+        }
+
+        node.InferredType = type;
+        node.Symbol = ctor;
+        node.IsStatic = false;
+
+        foreach (var edge in node.Out)
+        {
+            var child = edge.To;
+            if (child.Kind == AsgNodeKind.Target && type != null)
+            {
+                child.InferredType = type;
+                child.Symbol = type;
+                child.Label = type.Name;
+            }
+            if (child.Kind == AsgNodeKind.Type && edge.Label == "return" && type != null)
+            {
+                child.InferredType = type;
+                child.Nullable = type.NullableAnnotation;
+                child.Label = FormatType(type);
+            }
+            if (child.Kind == AsgNodeKind.MethodName && ctor != null)
+            {
+                child.Symbol = ctor;
+            }
+        }
+    }
+    
+    private void FillArrayCreation(AsgNode node)
+    {
+        ITypeSymbol? type = node.Source switch
+        {
+            ArrayCreationExpressionSyntax ace       => _model.GetTypeInfo(ace).Type,
+            ImplicitArrayCreationExpressionSyntax i => _model.GetTypeInfo(i).Type,
+            _ => null
+        };
+
+        if (type == null) return;
+        node.InferredType = type;
+
+        // Для массива IArrayTypeSymbol — путь к ElementType
+        if (type is not IArrayTypeSymbol arrayType) return;
+
+        // Обогатить два дочерних Type-узла, различая по label ребра
+        foreach (var edge in node.Out)
+        {
+            var child = edge.To;
+            if (child.Kind != AsgNodeKind.Type) continue;
+
+            if (edge.Label == "element")
+            {
+                child.InferredType = arrayType.ElementType;
+                child.Nullable = arrayType.ElementType.NullableAnnotation;
+                child.Label = FormatType(arrayType.ElementType);
+            }
+            else if (edge.Label == "return")
+            {
+                child.InferredType = type;
+                child.Nullable = type.NullableAnnotation;
+                child.Label = FormatType(type);
+            }
+        }
+    }
+    
+    private void FillFieldAccess(AsgNode node)
+    {
+        var type = node.Source switch
+        {
+            MemberAccessExpressionSyntax ma  => _model.GetTypeInfo(ma).Type,
+            MemberBindingExpressionSyntax mb => _model.GetTypeInfo(mb).Type,
+            _ => null
+        };
+        node.InferredType = type;
+
+        // Symbol самого узла — это тот же член, что и у FieldName.
+        // Можно не дублировать: у FieldName Symbol уже есть.
+    }
+    
+    private void FillElementAccess(AsgNode node)
+    {
+        var ea = (ElementAccessExpressionSyntax)node.Source!;
+
+        // Тип результата — тип элемента или тип значения индексатора
+        var type = _model.GetTypeInfo(ea).Type;
+        node.InferredType = type;
+
+        // Символ: для индексатора — IPropertySymbol, для массива — null
+        node.Symbol = _model.GetSymbolInfo(ea).Symbol;
+
+        // Заполнить дочерний Type
+        foreach (var edge in node.Out)
+        {
+            if (edge.To.Kind == AsgNodeKind.Type && edge.Label == "return" && type != null)
+            {
+                edge.To.InferredType = type;
+                edge.To.Nullable = type.NullableAnnotation;
+                edge.To.Label = FormatType(type);
+            }
+        }
+    }
+    
+    private void FillParameter(AsgNode node)
+    {
+        if (node.Source is not ParameterSyntax p) return;
+        var symbol = _model.GetDeclaredSymbol(p) as IParameterSymbol;
+        if (symbol == null) return;
+        node.Symbol = symbol;
+        node.InferredType = symbol.Type;
+        node.Nullable = symbol.NullableAnnotation;
+    }
+
+    private ITypeSymbol? GetTypeForDeclarator(AsgNode parent)
+    {
+        if (parent.Source is not VariableDeclaratorSyntax decl) return null;
+        return (_model.GetDeclaredSymbol(decl) as ILocalSymbol)?.Type;
+    }
+
+    private ITypeSymbol? GetTypeForForEach(AsgNode parent)
+    {
+        if (parent.Source is not ForEachStatementSyntax fe) return null;
+        return (_model.GetDeclaredSymbol(fe) as ILocalSymbol)?.Type;
+    }
+
+    private ITypeSymbol? GetTypeForArgument(AsgNode parent)
+    {
+        if (parent.Source is not ArgumentSyntax arg) return null;
+        var info = _model.GetTypeInfo(arg.Expression);
+        return info.Type ?? info.ConvertedType;
+    }
+
+    private ITypeSymbol? GetReturnTypeForInvocation(AsgNode parent)
+    {
+        if (parent.Symbol is IMethodSymbol m) return m.ReturnType;
+        if (parent.Source is InvocationExpressionSyntax inv)
+            return (_model.GetSymbolInfo(inv).Symbol as IMethodSymbol)?.ReturnType;
+        return null;
+    }
+
+    private ITypeSymbol? GetTypeForParameter(AsgNode parent)
+    {
+        if (parent.Source is not ParameterSyntax p) return null;
+        return (_model.GetDeclaredSymbol(p) as IParameterSymbol)?.Type;
     }
 }

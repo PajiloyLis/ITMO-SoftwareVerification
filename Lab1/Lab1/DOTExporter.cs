@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using Microsoft.CodeAnalysis;
 
 namespace Lab1;
 
@@ -175,7 +176,12 @@ static class DotExporter
 
         foreach (var n in graph.Nodes)
         foreach (var e in n.Out)
-            sb.AppendLine($"  N{n.Id} -> N{e.To.Id};");
+        {
+            string lbl = string.IsNullOrEmpty(e.Label)
+                ? ""
+                : $" [label=\"{Esc(e.Label)}\"]";
+            sb.AppendLine($"  N{n.Id} -> N{e.To.Id}{lbl};");
+        }
 
         sb.AppendLine("}");
         return sb.ToString();
@@ -190,7 +196,23 @@ static class DotExporter
     {
         string kind = EscHtml(n.Kind.ToString());
         string value = n.Label is null or "" ? "" : $"<BR/>{EscHtml(n.Label)}";
-        return $"<<B>{kind}</B>{value}>";
+
+        var badges = new List<string>();
+        if (n.IsStatic) badges.Add("static");
+
+        // Показываем nullable только у Type-узлов — там это информация,
+        // а у Identifier/VariableDeclaration это шум: сам тип уже помечен.
+        if (n.Kind == AsgNodeKind.Type
+            && n.Nullable == NullableAnnotation.Annotated)
+            badges.Add("nullable");
+
+        string extra = badges.Count > 0
+            ? $"<BR/><FONT POINT-SIZE=\"8\">{string.Join(", ", badges)}</FONT>"
+            : "";
+
+        return value.Length > 0
+            ? $"<<B>{kind}</B><BR/>{value}{extra}>"
+            : $"<<B>{kind}</B>{extra}>";
     }
 
     private static string EscHtml(string s) =>

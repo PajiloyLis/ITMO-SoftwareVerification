@@ -168,6 +168,7 @@ class Program
             if (buildAsg)
             {
                 var asg = new AsgBuilder().Build(method);
+                new SemanticEnricher(semantic.Model).Enrich(asg);
                 string dotPath = Path.Combine(saveDotDir, name + ".asg.dot");
                 string imgPath = Path.Combine(saveImageDir, name + ".asg." + imageFormat);
 

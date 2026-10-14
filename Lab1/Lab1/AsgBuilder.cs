@@ -4,14 +4,6 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Reflection;
 using System.Runtime.Loader;
 
-
-var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
-    .Split(Path.PathSeparator);
-
-var references = tpa
-    .Select(path => MetadataReference.CreateFromFile(path))
-    .ToList();
-
 namespace Lab1;
 
 
@@ -121,7 +113,29 @@ class AsgBuilder
 
         if (node is ForEachStatementSyntax fe)
             return WalkForEach(fe, parent);
+        
+        
+        if (node is ObjectCreationExpressionSyntax oce)
+            return WalkObjectCreation(oce, parent);
 
+        if (node is ImplicitObjectCreationExpressionSyntax ioce)
+            return WalkImplicitObjectCreation(ioce, parent);
+        
+        if (node is ArrayCreationExpressionSyntax ace)
+            return WalkArrayCreation(ace, parent);
+
+        if (node is ImplicitArrayCreationExpressionSyntax iace)
+            return WalkArrayCreation(iace, parent);
+
+        if (node is MemberAccessExpressionSyntax ma)
+            return WalkFieldAccess(ma, parent);
+
+        if (node is MemberBindingExpressionSyntax mb)
+            return WalkMemberBinding(mb, parent);
+        
+        if (node is ElementAccessExpressionSyntax ea)
+            return WalkElementAccess(ea, parent);
+        
         var asg = NewNode(Classify(node), LabelFor(node), node);
         _graph.AddEdge(parent, asg, AsgEdgeKind.AstChild);
 
@@ -165,6 +179,10 @@ class AsgBuilder
             case MemberAccessExpressionSyntax ma:
                 WalkTarget(ma.Expression, invNode);
                 AddMethodName(ma.Name, invNode);
+                break;
+            
+            case MemberBindingExpressionSyntax mb:      // ← NEW
+                AddMethodName(mb.Name, invNode);
                 break;
 
             case IdentifierNameSyntax id:
@@ -269,7 +287,7 @@ class AsgBuilder
         StatementSyntax => AsgNodeKind.Statement,
         TypeSyntax => AsgNodeKind.Type,
         ExpressionSyntax => AsgNodeKind.Expression,
-        _ => AsgNodeKind.Expression
+        _ => AsgNodeKind.Expression  
     };
 
     private static string LabelFor(SyntaxNode node) => node switch
@@ -283,6 +301,8 @@ class AsgBuilder
         AssignmentExpressionSyntax a => AssignmentOperatorSymbol(a.Kind()),
         PrefixUnaryExpressionSyntax p => UnaryOperatorSymbol(p.Kind()),
         PostfixUnaryExpressionSyntax p => UnaryOperatorSymbol(p.Kind()),
+        PredefinedTypeSyntax p => p.Keyword.Text,    // "string", "int", ...
+        TypeSyntax t           => t.ToString(),      // на случай других типов
         _ => node.Kind().ToString()
     };
 
@@ -357,4 +377,173 @@ class AsgBuilder
 
         _ => kind.ToString()
     };
+    
+    private AsgNode WalkObjectCreation(ObjectCreationExpressionSyntax oce, AsgNode parent)
+    {
+        var n = NewNode(AsgNodeKind.ObjectCreation, "", oce);
+        _graph.AddEdge(parent, n, AsgEdgeKind.AstChild);
+
+        // 1. Target = тип создаваемого объекта
+        var typeNode = NewNode(AsgNodeKind.Target, oce.Type.ToString(), oce.Type);
+        _graph.AddEdge(n, typeNode, AsgEdgeKind.AstChild, "target");
+
+        // 2. MethodName — синтетический узел (в синтаксисе имени нет)
+        var ctorName = NewNode(AsgNodeKind.MethodName, "#ctor", oce);
+        _graph.AddEdge(n, ctorName, AsgEdgeKind.AstChild);
+
+        // 3. ReturnType — placeholder, заполнит семантика
+        var retType = NewNode(AsgNodeKind.Type, null, oce);
+        _graph.AddEdge(n, retType, AsgEdgeKind.AstChild, "return");
+
+        // 4. ArgumentList
+        if (oce.ArgumentList != null)
+        {
+            var argListNode = NewNode(AsgNodeKind.ArgumentList, "", oce.ArgumentList);
+            _graph.AddEdge(n, argListNode, AsgEdgeKind.AstChild);
+            foreach (var arg in oce.ArgumentList.Arguments)
+                WalkArgument(arg, argListNode);
+        }
+
+        // 5. Initializer { X = 1, Y = 2 } — обходим как обычно
+        if (oce.Initializer != null)
+            Walk(oce.Initializer, n);
+
+        return n;
+    }
+    
+    private AsgNode WalkImplicitObjectCreation(
+        ImplicitObjectCreationExpressionSyntax ioce, AsgNode parent)
+    {
+        var n = NewNode(AsgNodeKind.ObjectCreation, "", ioce);
+        _graph.AddEdge(parent, n, AsgEdgeKind.AstChild);
+
+        // Type-имени в синтаксисе нет — ставим placeholder
+        var typeNode = NewNode(AsgNodeKind.Target, null, ioce);
+        _graph.AddEdge(n, typeNode, AsgEdgeKind.AstChild, "target");
+
+        // MethodName — синтетический "#ctor"
+        var ctorName = NewNode(AsgNodeKind.MethodName, "#ctor", ioce);
+        _graph.AddEdge(n, ctorName, AsgEdgeKind.AstChild);
+
+        // ReturnType — placeholder
+        var retType = NewNode(AsgNodeKind.Type, null, ioce);
+        _graph.AddEdge(n, retType, AsgEdgeKind.AstChild, "return");
+
+        // ArgumentList
+        if (ioce.ArgumentList != null)
+        {
+            var argListNode = NewNode(AsgNodeKind.ArgumentList, "", ioce.ArgumentList);
+            _graph.AddEdge(n, argListNode, AsgEdgeKind.AstChild);
+            foreach (var arg in ioce.ArgumentList.Arguments)
+                WalkArgument(arg, argListNode);
+        }
+
+        // Initializer
+        if (ioce.Initializer != null)
+            Walk(ioce.Initializer, n);
+
+        return n;
+    }
+    
+    private AsgNode WalkArrayCreation(SyntaxNode node, AsgNode parent)
+    {
+        var n = NewNode(AsgNodeKind.ArrayCreation, "", node);
+        _graph.AddEdge(parent, n, AsgEdgeKind.AstChild);
+
+        switch (node)
+        {
+            case ArrayCreationExpressionSyntax ace:
+                // Тип элемента — из синтаксиса: ArrayTypeSyntax.ElementType
+                var elemType = NewNode(AsgNodeKind.Type,
+                    ace.Type.ElementType.ToString(), ace.Type.ElementType);
+                _graph.AddEdge(n, elemType, AsgEdgeKind.AstChild, "element");
+
+                // Тип результата — placeholder, заполнит семантика
+                var retType = NewNode(AsgNodeKind.Type, null, ace);
+                _graph.AddEdge(n, retType, AsgEdgeKind.AstChild, "return");
+
+                // Размеры — по всем RankSpecifier и всем Sizes
+                // Для new int[n]     → один Identifier
+                // Для new int[2, 3]  → два Literal
+                // Для new int[] {...} → ноль (RankSpecifier пустой)
+                foreach (var rank in ace.Type.RankSpecifiers)
+                foreach (var size in rank.Sizes)
+                {
+                    var sizeWrapper = NewNode(AsgNodeKind.ArraySize, "", size);
+                    _graph.AddEdge(n, sizeWrapper, AsgEdgeKind.AstChild);
+                    Walk(size, sizeWrapper);
+                }
+
+                // Инициализатор { ... } — если есть
+                if (ace.Initializer != null)
+                    Walk(ace.Initializer, n);
+                break;
+
+            case ImplicitArrayCreationExpressionSyntax iace:
+                // Тип элемента неизвестен из синтаксиса — placeholder
+                var elemTypeI = NewNode(AsgNodeKind.Type, null, iace);
+                _graph.AddEdge(n, elemTypeI, AsgEdgeKind.AstChild, "element");
+
+                // Тип результата — placeholder
+                var retTypeI = NewNode(AsgNodeKind.Type, null, iace);
+                _graph.AddEdge(n, retTypeI, AsgEdgeKind.AstChild, "return");
+
+                // Инициализатор обязателен в new[] {...}
+                if (iace.Initializer != null)
+                    Walk(iace.Initializer, n);
+                break;
+        }
+
+        return n;
+    }
+    
+    private AsgNode WalkFieldAccess(MemberAccessExpressionSyntax ma, AsgNode parent)
+    {
+        var n = NewNode(AsgNodeKind.FieldAccess, "", ma);
+        _graph.AddEdge(parent, n, AsgEdgeKind.AstChild);
+
+        // Target — то, у чего берём поле
+        WalkTarget(ma.Expression, n);
+
+        // FieldName — имя члена
+        var nameNode = NewNode(AsgNodeKind.FieldName, ma.Name.Identifier.Text, ma.Name);
+        _graph.AddEdge(n, nameNode, AsgEdgeKind.AstChild);
+
+        return n;
+    }
+    
+    private AsgNode WalkMemberBinding(MemberBindingExpressionSyntax mb, AsgNode parent)
+    {
+        var n = NewNode(AsgNodeKind.FieldAccess, "", mb);
+        _graph.AddEdge(parent, n, AsgEdgeKind.AstChild);
+
+        // Target отсутствует — он унаследован от ConditionalAccessExpression.
+        // Можно оставить пустым; семантика заполнит Symbol у FieldName.
+
+        var nameNode = NewNode(AsgNodeKind.FieldName, mb.Name.Identifier.Text, mb.Name);
+        _graph.AddEdge(n, nameNode, AsgEdgeKind.AstChild);
+
+        return n;
+    }
+    
+    private AsgNode WalkElementAccess(ElementAccessExpressionSyntax ea, AsgNode parent)
+    {
+        var n = NewNode(AsgNodeKind.ElementAccess, "", ea);
+        _graph.AddEdge(parent, n, AsgEdgeKind.AstChild);
+
+        // Target — на чём индексируем
+        WalkTarget(ea.Expression, n);
+
+        // ReturnType — placeholder под тип элемента
+        var retType = NewNode(AsgNodeKind.Type, null, ea);
+        _graph.AddEdge(n, retType, AsgEdgeKind.AstChild, "return");
+
+        // ArgumentList — индексы. Переиспользуем WalkArgument
+        var argList = NewNode(AsgNodeKind.ArgumentList, "", ea.ArgumentList);
+        _graph.AddEdge(n, argList, AsgEdgeKind.AstChild);
+        foreach (var arg in ea.ArgumentList.Arguments)
+            WalkArgument(arg, argList);
+
+        return n;
+    }
 }
