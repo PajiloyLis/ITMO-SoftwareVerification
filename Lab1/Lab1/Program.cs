@@ -169,6 +169,7 @@ class Program
             {
                 var asg = new AsgBuilder().Build(method);
                 new SemanticEnricher(semantic.Model).Enrich(asg);
+                new DefUseCollector().Collect(asg);
                 string dotPath = Path.Combine(saveDotDir, name + ".asg.dot");
                 string imgPath = Path.Combine(saveImageDir, name + ".asg." + imageFormat);
 
@@ -190,14 +191,13 @@ class Program
         var sb = new StringBuilder();
 
         Console.WriteLine("Введите код.");
-        Console.WriteLine("  Завершение ввода: Ctrl+D (Linux/macOS) или Ctrl+Z + Enter (Windows)");
+        Console.WriteLine("  Завершение ввода: Ctrl+D");
         Console.WriteLine(new string('-', 60));
 
         while (true)
         {
             string? line = Console.ReadLine();
 
-            // null = EOF → Ctrl+D на Linux/macOS, Ctrl+Z на Windows
             if (line == null)
                 break;
 
@@ -207,7 +207,7 @@ class Program
         Console.WriteLine(new string('-', 60));
         return sb.ToString();
     }
-    
+
     static void Pause()
     {
         Console.WriteLine("Нажмите любую клавишу...");

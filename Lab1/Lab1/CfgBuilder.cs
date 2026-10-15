@@ -115,7 +115,7 @@ class CfgBuilder
         {
             ConnectToEnd(entry);
         }
-        
+
         CollapseEmptyPassThroughBlocks();
         return _cfg;
     }
@@ -140,9 +140,9 @@ class CfgBuilder
         var after = VisitStatement(body, entry);
         if (after != null)
             ConnectToEnd(after);
-        
+
         CollapseEmptyPassThroughBlocks();
-        
+
         return _cfg;
     }
 

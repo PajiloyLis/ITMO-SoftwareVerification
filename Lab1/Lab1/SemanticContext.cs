@@ -15,7 +15,7 @@ class SemanticContext
             MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
             MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
             MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(SyntaxNode).Assembly.Location), // Microsoft.CodeAnalysis
+            MetadataReference.CreateFromFile(typeof(SyntaxNode).Assembly.Location), 
             MetadataReference.CreateFromFile(typeof(CSharpSyntaxTree).Assembly.Location),
         };
 
@@ -32,7 +32,6 @@ class SemanticContext
             }
             catch
             {
-                /* пропустить битые */
             }
         }
 

@@ -82,7 +82,7 @@ static class DotExporter
     {
         if (b.Instructions.Count == 0)
             return b.Terminator != TerminatorKind.Fallthrough
-                ? Esc($"[{b.Terminator}]")
+                ? Esc($"{b.Terminator}")
                 : " ";
 
         bool centered = b.Terminator == TerminatorKind.Branch;
@@ -151,7 +151,11 @@ static class DotExporter
     {
         var sb = new StringBuilder();
         sb.AppendLine($"digraph \"{Esc(title)}\" {{");
-        sb.AppendLine("  rankdir=TB;");
+        sb.AppendLine("  rankdir=LR;");
+        sb.AppendLine("  nodesep=1;");
+        sb.AppendLine("  ranksep=1.5;");
+        sb.AppendLine("  splines=ortho;");
+        sb.AppendLine("  concentrate=true;");
         sb.AppendLine("  node [fontname=\"Consolas\", fontsize=10];");
         sb.AppendLine("  edge [fontname=\"Consolas\", fontsize=9];");
         sb.AppendLine();
@@ -177,31 +181,32 @@ static class DotExporter
         foreach (var n in graph.Nodes)
         foreach (var e in n.Out)
         {
-            string lbl = string.IsNullOrEmpty(e.Label)
-                ? ""
-                : $" [label=\"{Esc(e.Label)}\"]";
-            sb.AppendLine($"  N{n.Id} -> N{e.To.Id}{lbl};");
+            string attrs = e.Kind switch
+            {
+                AsgEdgeKind.DataFlow => " [style=dashed]",
+                AsgEdgeKind.ControlDep => " [style=dashed]",
+                _ => string.IsNullOrEmpty(e.Label)
+                    ? ""
+                    : $" [label=\"{Esc(e.Label)}\"]"
+            };
+            sb.AppendLine($"  N{n.Id} -> N{e.To.Id}{attrs};");
         }
 
         sb.AppendLine("}");
         return sb.ToString();
     }
 
-    /// <summary>
-    /// HTML-метка вида:
-    ///   <B>Kind</B><BR/>value
-    /// Обратите внимание: label без кавычек, потому что это HTML-label.
-    /// </summary>
     private static string BuildHtmlLabel(AsgNode n)
     {
         string kind = EscHtml(n.Kind.ToString());
         string value = n.Label is null or "" ? "" : $"<BR/>{EscHtml(n.Label)}";
 
         var badges = new List<string>();
-        if (n.IsStatic) badges.Add("static");
+        if (n.IsStatic && n.Kind is AsgNodeKind.Invocation
+                or AsgNodeKind.FieldAccess
+                or AsgNodeKind.Method)
+            badges.Add("static");
 
-        // Показываем nullable только у Type-узлов — там это информация,
-        // а у Identifier/VariableDeclaration это шум: сам тип уже помечен.
         if (n.Kind == AsgNodeKind.Type
             && n.Nullable == NullableAnnotation.Annotated)
             badges.Add("nullable");

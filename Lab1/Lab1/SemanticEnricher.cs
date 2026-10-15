@@ -13,11 +13,10 @@ class SemanticEnricher
     {
         foreach (var node in graph.Nodes)
         {
-            if (node.Kind == AsgNodeKind.Type) continue; // отложим Type на второй проход
+            if (node.Kind == AsgNodeKind.Type) continue;
             EnrichNode(node);
         }
 
-        // Проход 2: Type-узлы — им нужен уже готовый Symbol у родителя
         foreach (var node in graph.Nodes.Where(n => n.Kind == AsgNodeKind.Type))
             FillType(node);
     }
@@ -57,23 +56,23 @@ class SemanticEnricher
             case AsgNodeKind.ObjectCreation:
                 FillObjectCreation(node);
                 break;
-            
+
             case AsgNodeKind.ArrayCreation:
                 FillArrayCreation(node);
                 break;
-            
+
             case AsgNodeKind.FieldAccess:
                 FillFieldAccess(node);
                 break;
 
             case AsgNodeKind.FieldName:
-                FillSymbol(node);   // переиспользуем существующий метод
+                FillSymbol(node);
                 break;
-            
+
             case AsgNodeKind.ElementAccess:
                 FillElementAccess(node);
                 break;
-            
+
             case AsgNodeKind.Parameter:
                 FillParameter(node);
                 break;
@@ -90,12 +89,9 @@ class SemanticEnricher
             case IMethodSymbol m:
                 node.InferredType = m.ReturnType;
                 node.IsStatic = m.IsStatic;
-                // Для Target/MethodName можно уточнить Label
                 break;
 
             case INamedTypeSymbol t:
-                // Console, String — это тип
-                node.IsStatic = true;
                 node.InferredType = t;
                 break;
 
@@ -133,7 +129,6 @@ class SemanticEnricher
         node.IsStatic = symbol.IsStatic;
         node.InferredType = symbol.ReturnType;
 
-        // Найти дочерний Type-узел (ReturnType) и заполнить его
         var returnTypeNode = node.Out
             .Select(e => e.To)
             .FirstOrDefault(n => n.Kind == AsgNodeKind.Type);
@@ -145,14 +140,12 @@ class SemanticEnricher
             returnTypeNode.Label = FormatType(symbol.ReturnType);
         }
 
-        // Уточнить MethodName (если оно есть) — сделать Label полным именем
         var methodNameNode = node.Out
             .Select(e => e.To)
             .FirstOrDefault(n => n.Kind == AsgNodeKind.MethodName);
         if (methodNameNode != null)
         {
             methodNameNode.Symbol = symbol;
-            // опционально: methodNameNode.Label = $"{symbol.ContainingType.Name}.{symbol.Name}";
         }
     }
 
@@ -166,7 +159,6 @@ class SemanticEnricher
         node.InferredType = type;
         node.Nullable = type.NullableAnnotation;
 
-        // Найти дочерний Type-узел (placeholder)
         var typeNode = node.Out
             .Select(e => e.To)
             .FirstOrDefault(n => n.Kind == AsgNodeKind.Type);
@@ -181,10 +173,8 @@ class SemanticEnricher
 
     private void FillType(AsgNode node)
     {
-        // Если узел уже заполнен — не трогаем
         if (node.Label is not null and not "?" and not "var") return;
 
-        // Смотрим родителя: Type может относиться к VariableDeclaration, Argument, Invocation...
         var parent = node.In.FirstOrDefault()?.From;
         if (parent == null) return;
 
@@ -249,7 +239,7 @@ class SemanticEnricher
             node.Nullable = type.NullableAnnotation;
         }
     }
-    
+
     private void FillObjectCreation(AsgNode node)
     {
         ITypeSymbol? type;
@@ -282,24 +272,26 @@ class SemanticEnricher
                 child.Symbol = type;
                 child.Label = type.Name;
             }
+
             if (child.Kind == AsgNodeKind.Type && edge.Label == "return" && type != null)
             {
                 child.InferredType = type;
                 child.Nullable = type.NullableAnnotation;
                 child.Label = FormatType(type);
             }
+
             if (child.Kind == AsgNodeKind.MethodName && ctor != null)
             {
                 child.Symbol = ctor;
             }
         }
     }
-    
+
     private void FillArrayCreation(AsgNode node)
     {
         ITypeSymbol? type = node.Source switch
         {
-            ArrayCreationExpressionSyntax ace       => _model.GetTypeInfo(ace).Type,
+            ArrayCreationExpressionSyntax ace => _model.GetTypeInfo(ace).Type,
             ImplicitArrayCreationExpressionSyntax i => _model.GetTypeInfo(i).Type,
             _ => null
         };
@@ -307,10 +299,8 @@ class SemanticEnricher
         if (type == null) return;
         node.InferredType = type;
 
-        // Для массива IArrayTypeSymbol — путь к ElementType
         if (type is not IArrayTypeSymbol arrayType) return;
 
-        // Обогатить два дочерних Type-узла, различая по label ребра
         foreach (var edge in node.Out)
         {
             var child = edge.To;
@@ -330,33 +320,38 @@ class SemanticEnricher
             }
         }
     }
-    
+
     private void FillFieldAccess(AsgNode node)
     {
         var type = node.Source switch
         {
-            MemberAccessExpressionSyntax ma  => _model.GetTypeInfo(ma).Type,
+            MemberAccessExpressionSyntax ma => _model.GetTypeInfo(ma).Type,
             MemberBindingExpressionSyntax mb => _model.GetTypeInfo(mb).Type,
             _ => null
         };
         node.InferredType = type;
 
-        // Symbol самого узла — это тот же член, что и у FieldName.
-        // Можно не дублировать: у FieldName Symbol уже есть.
+        var symbol = node.Source switch
+        {
+            MemberAccessExpressionSyntax ma => _model.GetSymbolInfo(ma).Symbol,
+            MemberBindingExpressionSyntax mb => _model.GetSymbolInfo(mb).Symbol,
+            _ => null
+        };
+        node.Symbol = symbol;
+        if (symbol is IFieldSymbol f) node.IsStatic = f.IsStatic;
+        if (symbol is IPropertySymbol p) node.IsStatic = p.IsStatic;
+        if (symbol is IMethodSymbol m) node.IsStatic = m.IsStatic;
     }
-    
+
     private void FillElementAccess(AsgNode node)
     {
         var ea = (ElementAccessExpressionSyntax)node.Source!;
 
-        // Тип результата — тип элемента или тип значения индексатора
         var type = _model.GetTypeInfo(ea).Type;
         node.InferredType = type;
 
-        // Символ: для индексатора — IPropertySymbol, для массива — null
         node.Symbol = _model.GetSymbolInfo(ea).Symbol;
 
-        // Заполнить дочерний Type
         foreach (var edge in node.Out)
         {
             if (edge.To.Kind == AsgNodeKind.Type && edge.Label == "return" && type != null)
@@ -367,7 +362,7 @@ class SemanticEnricher
             }
         }
     }
-    
+
     private void FillParameter(AsgNode node)
     {
         if (node.Source is not ParameterSyntax p) return;

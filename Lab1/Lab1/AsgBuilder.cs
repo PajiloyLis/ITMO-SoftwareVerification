@@ -6,8 +6,6 @@ using System.Runtime.Loader;
 
 namespace Lab1;
 
-
-
 class AsgBuilder
 {
     private AbstractSemanticGraph _graph = null!;
@@ -32,20 +30,16 @@ class AsgBuilder
         else
             _graph.Root = methodNode;
 
-        // 1. Тип возвращаемого значения
         var retType = m.ReturnType;
         var retTypeNode = NewNode(AsgNodeKind.Type, retType.ToString(), retType);
         _graph.AddEdge(methodNode, retTypeNode, AsgEdgeKind.AstChild);
 
-        // 2. Имя функции — синтетический Identifier-узел из токена
         var nameNode = NewNode(AsgNodeKind.Identifier, m.Identifier.Text, m);
         _graph.AddEdge(methodNode, nameNode, AsgEdgeKind.AstChild);
 
-        // 3. Параметры
         foreach (var p in m.ParameterList.Parameters)
             WalkParameter(p, methodNode);
 
-        // 4. Тело
         if (m.Body != null)
             Walk(m.Body, methodNode);
 
@@ -57,18 +51,15 @@ class AsgBuilder
         var paramNode = NewNode(AsgNodeKind.Parameter, p.Identifier.Text, p);
         _graph.AddEdge(parent, paramNode, AsgEdgeKind.AstChild);
 
-        // тип (если есть)
         if (p.Type != null)
         {
             var typeNode = NewNode(AsgNodeKind.Type, p.Type.ToString(), p.Type);
             _graph.AddEdge(paramNode, typeNode, AsgEdgeKind.AstChild);
         }
 
-        // имя параметра
         var nameNode = NewNode(AsgNodeKind.Identifier, p.Identifier.Text, p);
         _graph.AddEdge(paramNode, nameNode, AsgEdgeKind.AstChild);
 
-        // значение по умолчанию
         if (p.Default != null)
             Walk(p.Default.Value, paramNode);
 
@@ -84,7 +75,6 @@ class AsgBuilder
 
     private AsgNode Walk(SyntaxNode node, AsgNode parent)
     {
-        // LocalDeclarationStatement — пропускаем сам узел, тело разворачиваем
         if (node is LocalDeclarationStatementSyntax localDecl)
         {
             if (localDecl.Declaration != null)
@@ -93,7 +83,6 @@ class AsgBuilder
             return parent;
         }
 
-        // VariableDeclaration вне LocalDeclaration (например, в for) — тоже пропускаем
         if (node is VariableDeclarationSyntax standaloneDecl)
         {
             foreach (var v in standaloneDecl.Variables)
@@ -101,7 +90,6 @@ class AsgBuilder
             return parent;
         }
 
-        // VariableDeclarator сам по себе — на всякий случай
         if (node is VariableDeclaratorSyntax decl)
             return WalkDeclarator(decl, parent, decl.Parent as VariableDeclarationSyntax);
 
@@ -113,14 +101,14 @@ class AsgBuilder
 
         if (node is ForEachStatementSyntax fe)
             return WalkForEach(fe, parent);
-        
-        
+
+
         if (node is ObjectCreationExpressionSyntax oce)
             return WalkObjectCreation(oce, parent);
 
         if (node is ImplicitObjectCreationExpressionSyntax ioce)
             return WalkImplicitObjectCreation(ioce, parent);
-        
+
         if (node is ArrayCreationExpressionSyntax ace)
             return WalkArrayCreation(ace, parent);
 
@@ -132,10 +120,10 @@ class AsgBuilder
 
         if (node is MemberBindingExpressionSyntax mb)
             return WalkMemberBinding(mb, parent);
-        
+
         if (node is ElementAccessExpressionSyntax ea)
             return WalkElementAccess(ea, parent);
-        
+
         var asg = NewNode(Classify(node), LabelFor(node), node);
         _graph.AddEdge(parent, asg, AsgEdgeKind.AstChild);
 
@@ -180,8 +168,8 @@ class AsgBuilder
                 WalkTarget(ma.Expression, invNode);
                 AddMethodName(ma.Name, invNode);
                 break;
-            
-            case MemberBindingExpressionSyntax mb:      // ← NEW
+
+            case MemberBindingExpressionSyntax mb: // ← NEW
                 AddMethodName(mb.Name, invNode);
                 break;
 
@@ -287,7 +275,7 @@ class AsgBuilder
         StatementSyntax => AsgNodeKind.Statement,
         TypeSyntax => AsgNodeKind.Type,
         ExpressionSyntax => AsgNodeKind.Expression,
-        _ => AsgNodeKind.Expression  
+        _ => AsgNodeKind.Expression
     };
 
     private static string LabelFor(SyntaxNode node) => node switch
@@ -301,8 +289,8 @@ class AsgBuilder
         AssignmentExpressionSyntax a => AssignmentOperatorSymbol(a.Kind()),
         PrefixUnaryExpressionSyntax p => UnaryOperatorSymbol(p.Kind()),
         PostfixUnaryExpressionSyntax p => UnaryOperatorSymbol(p.Kind()),
-        PredefinedTypeSyntax p => p.Keyword.Text,    // "string", "int", ...
-        TypeSyntax t           => t.ToString(),      // на случай других типов
+        PredefinedTypeSyntax p => p.Keyword.Text, // "string", "int", ...
+        TypeSyntax t => t.ToString(), // на случай других типов
         _ => node.Kind().ToString()
     };
 
@@ -377,7 +365,7 @@ class AsgBuilder
 
         _ => kind.ToString()
     };
-    
+
     private AsgNode WalkObjectCreation(ObjectCreationExpressionSyntax oce, AsgNode parent)
     {
         var n = NewNode(AsgNodeKind.ObjectCreation, "", oce);
@@ -410,7 +398,7 @@ class AsgBuilder
 
         return n;
     }
-    
+
     private AsgNode WalkImplicitObjectCreation(
         ImplicitObjectCreationExpressionSyntax ioce, AsgNode parent)
     {
@@ -444,7 +432,7 @@ class AsgBuilder
 
         return n;
     }
-    
+
     private AsgNode WalkArrayCreation(SyntaxNode node, AsgNode parent)
     {
         var n = NewNode(AsgNodeKind.ArrayCreation, "", node);
@@ -496,7 +484,7 @@ class AsgBuilder
 
         return n;
     }
-    
+
     private AsgNode WalkFieldAccess(MemberAccessExpressionSyntax ma, AsgNode parent)
     {
         var n = NewNode(AsgNodeKind.FieldAccess, "", ma);
@@ -511,7 +499,7 @@ class AsgBuilder
 
         return n;
     }
-    
+
     private AsgNode WalkMemberBinding(MemberBindingExpressionSyntax mb, AsgNode parent)
     {
         var n = NewNode(AsgNodeKind.FieldAccess, "", mb);
@@ -525,7 +513,7 @@ class AsgBuilder
 
         return n;
     }
-    
+
     private AsgNode WalkElementAccess(ElementAccessExpressionSyntax ea, AsgNode parent)
     {
         var n = NewNode(AsgNodeKind.ElementAccess, "", ea);

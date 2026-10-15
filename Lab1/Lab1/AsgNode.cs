@@ -33,15 +33,15 @@ class AsgNode
     public int Id;
     public AsgNodeKind Kind;
     public string? Label;
-    public SyntaxNode? Source;       
-    
+    public SyntaxNode? Source;
+
     public ISymbol? Symbol;
     public ITypeSymbol? InferredType;
     public NullableAnnotation Nullable = NullableAnnotation.None;
     public bool IsStatic;
 
     public List<AsgEdge> Out = new();
-    public List<AsgEdge> In  = new();
+    public List<AsgEdge> In = new();
 
     public AsgNode(int id) => Id = id;
 }
