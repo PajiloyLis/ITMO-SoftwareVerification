@@ -35,11 +35,17 @@ class CfgBuilder
             {
                 if (b.Kind != BlockKind.Normal) continue;
                 if (b.Instructions.Count > 0) continue;
-                if (b.Terminator != TerminatorKind.Fallthrough) continue;
                 if (b.Successors.Count != 1) continue;
 
                 var successor = b.Successors[0];
-                if (successor.Kind != EdgeKind.Fallthrough) continue;
+
+                bool isPassThrough = b.Terminator == TerminatorKind.Fallthrough
+                                     && successor.Kind == EdgeKind.Fallthrough;
+                bool isBreakContinue = b.Terminator == TerminatorKind.Goto
+                                       && (successor.Kind == EdgeKind.Break
+                                           || successor.Kind == EdgeKind.Continue);
+
+                if (!isPassThrough && !isBreakContinue) continue;
 
                 var target = successor.To;
 
@@ -49,11 +55,14 @@ class CfgBuilder
                 {
                     pred.From.Successors.Remove(pred);
 
-                    bool exists = target.Predecessors.Any(e => e.From == pred.From && e.Kind == pred.Kind);
+                    string? newLabel = pred.Label;
+                    if (isBreakContinue)
+                        newLabel = successor.Kind == EdgeKind.Break ? "break" : "continue";
 
+                    bool exists = target.Predecessors.Any(e => e.From == pred.From && e.Kind == pred.Kind);
                     if (!exists)
                     {
-                        var newEdge = new CfgEdge(pred.From, target, pred.Kind, pred.Label);
+                        var newEdge = new CfgEdge(pred.From, target, pred.Kind, newLabel);
                         pred.From.Successors.Add(newEdge);
                         target.Predecessors.Add(newEdge);
                     }
@@ -186,10 +195,10 @@ class CfgBuilder
             case ForEachStatementSyntax fe:
                 return VisitForEach(fe, current);
 
-            case BreakStatementSyntax:
+            case BreakStatementSyntax brk:
                 return VisitBreak(current);
-
-            case ContinueStatementSyntax:
+            
+            case ContinueStatementSyntax cont:
                 return VisitContinue(current);
 
             case SwitchStatementSyntax sw:
@@ -312,7 +321,7 @@ class CfgBuilder
         }
         else
         {
-            header.Terminator = TerminatorKind.Goto;
+            
             _cfg.AddEdge(header, body, EdgeKind.Fallthrough);
         }
 
@@ -363,7 +372,7 @@ class CfgBuilder
 
         current = EnsureFreshBlock(current);
         var ctx = _contexts.Peek();
-        current.Instructions.Add(new Instruction("break"));
+        
         current.Terminator = TerminatorKind.Goto;
         _cfg.AddEdge(current, ctx.Exit, EdgeKind.Break);
         return null;
@@ -376,12 +385,12 @@ class CfgBuilder
             throw new InvalidOperationException("continue вне цикла");
 
         current = EnsureFreshBlock(current);
-        current.Instructions.Add(new Instruction("continue"));
+        
         current.Terminator = TerminatorKind.Goto;
         _cfg.AddEdge(current, loop.Header!, EdgeKind.Continue);
         return null;
     }
-
+    
     private BasicBlock? VisitSwitch(SwitchStatementSyntax sw, BasicBlock current)
     {
         current = EnsureFreshBlock(current);

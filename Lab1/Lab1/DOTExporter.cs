@@ -151,11 +151,12 @@ static class DotExporter
     {
         var sb = new StringBuilder();
         sb.AppendLine($"digraph \"{Esc(title)}\" {{");
-        sb.AppendLine("  rankdir=LR;");
+        sb.AppendLine("  rankdir=TB;");
         sb.AppendLine("  nodesep=1;");
         sb.AppendLine("  ranksep=1.5;");
-        sb.AppendLine("  splines=ortho;");
-        sb.AppendLine("  concentrate=true;");
+        sb.AppendLine("  splines=polyline;");
+        
+        
         sb.AppendLine("  node [fontname=\"Consolas\", fontsize=10];");
         sb.AppendLine("  edge [fontname=\"Consolas\", fontsize=9];");
         sb.AppendLine();
@@ -181,14 +182,31 @@ static class DotExporter
         foreach (var n in graph.Nodes)
         foreach (var e in n.Out)
         {
-            string attrs = e.Kind switch
+            var parts = new List<string>();
+            bool addLabel = true;
+
+            switch (e.Kind)
             {
-                AsgEdgeKind.DataFlow => " [style=dashed]",
-                AsgEdgeKind.ControlDep => " [style=dashed]",
-                _ => string.IsNullOrEmpty(e.Label)
-                    ? ""
-                    : $" [label=\"{Esc(e.Label)}\"]"
-            };
+                case AsgEdgeKind.ControlFlow:
+                    parts.Add("style=dotted");
+                    addLabel = false;              
+                    break;
+
+                case AsgEdgeKind.DataFlow:
+                case AsgEdgeKind.ControlDep:
+                    parts.Add("style=dashed");
+                    break;
+
+                
+            }
+
+            if (addLabel && !string.IsNullOrEmpty(e.Label))
+                parts.Add($"xlabel=\"{Esc(e.Label)}\"");
+
+            string attrs = parts.Count > 0
+                ? " [" + string.Join(", ", parts) + "]"
+                : "";
+
             sb.AppendLine($"  N{n.Id} -> N{e.To.Id}{attrs};");
         }
 
@@ -225,6 +243,9 @@ static class DotExporter
             .Replace("<", "&lt;")
             .Replace(">", "&gt;");
 
-    public static void SaveAsgDot(AbstractSemanticGraph graph, string path, string title = "ASG")
-        => File.WriteAllText(path, AsgToDot(graph, title));
+    public static void SaveAsgDot(AbstractSemanticGraph graph, string path, string title = "ASG", bool compact = true)
+    {
+        var renderGraph = compact ? new AsgCompactor().Compact(graph) : graph;
+        File.WriteAllText(path, AsgToDot(renderGraph, title));
+    }
 }

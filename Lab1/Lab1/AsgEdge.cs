@@ -4,7 +4,8 @@ enum AsgEdgeKind
 {
     AstChild,
     DataFlow,
-    ControlDep
+    ControlDep,
+    ControlFlow
 }
 
 class AsgEdge

@@ -12,7 +12,7 @@ class Program
         string saveImageDir = "./images";
         string saveDotDir = "./dots";
         string imageFormat = "pdf";
-
+        bool compactAsg = true;
         while (true)
         {
             Console.Clear();
@@ -20,13 +20,15 @@ class Program
             Console.WriteLine($"  1. Директория .dot:     {Path.GetFullPath(saveDotDir)}");
             Console.WriteLine($"  2. Директория картинок: {Path.GetFullPath(saveImageDir)}");
             Console.WriteLine($"  3. Формат картинок:     {imageFormat}");
+            Console.WriteLine($"  4. Компактный ASG:      {(compactAsg ? "Да" : "Нет")}");
             Console.WriteLine();
             Console.WriteLine("Выберите опцию:");
             Console.WriteLine("0. Выход");
             Console.WriteLine("1. Установить директорию сохранения .dot файла");
             Console.WriteLine("2. Установить директорию сохранения изображений");
             Console.WriteLine("3. Установить формат изображения");
-            Console.WriteLine("4. Выбрать способ ввода и построить CFG");
+            Console.WriteLine("4. Переключить режим ASG (компактный/полный)");
+            Console.WriteLine("5. Выбрать способ ввода и построить граф");
             Console.Write("> ");
 
             var choice = Console.ReadLine()?.Trim();
@@ -61,9 +63,12 @@ class Program
                     break;
 
                 case "4":
-                    RunBuild(saveDotDir, saveImageDir, imageFormat);
+                    compactAsg = !compactAsg;
                     break;
 
+                case "5":
+                    RunBuild(saveDotDir, saveImageDir, imageFormat, compactAsg);
+                    break;
                 default:
                     Console.WriteLine("Неизвестная опция");
                     Pause();
@@ -72,7 +77,7 @@ class Program
         }
     }
 
-    static void RunBuild(string saveDotDir, string saveImageDir, string imageFormat)
+    static void RunBuild(string saveDotDir, string saveImageDir, string imageFormat, bool compactAsg)
     {
         Console.Clear();
         Console.WriteLine("Способ ввода:");
@@ -167,13 +172,17 @@ class Program
 
             if (buildAsg)
             {
+                var cfg = new CfgBuilder().Build(method);
                 var asg = new AsgBuilder().Build(method);
                 new SemanticEnricher(semantic.Model).Enrich(asg);
                 new DefUseCollector().Collect(asg);
+
+                new ControlFlowMapper().AddEdges(asg, cfg); 
+                
                 string dotPath = Path.Combine(saveDotDir, name + ".asg.dot");
                 string imgPath = Path.Combine(saveImageDir, name + ".asg." + imageFormat);
 
-                DotExporter.SaveAsgDot(asg, dotPath, name + " (ASG)");
+                DotExporter.SaveAsgDot(asg, dotPath, name + " (ASG)", compactAsg);
                 Console.WriteLine($"  asg dot: {dotPath}");
                 Console.WriteLine(DotExporter.Render(dotPath, imgPath, imageFormat)
                     ? $"  asg img: {imgPath}"

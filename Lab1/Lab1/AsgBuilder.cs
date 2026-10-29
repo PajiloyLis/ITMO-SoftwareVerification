@@ -75,6 +75,8 @@ class AsgBuilder
 
     private AsgNode Walk(SyntaxNode node, AsgNode parent)
     {
+        if (node is BreakStatementSyntax or ContinueStatementSyntax)
+            return parent;
         if (node is LocalDeclarationStatementSyntax localDecl)
         {
             if (localDecl.Declaration != null)
@@ -144,7 +146,7 @@ class AsgBuilder
         var nameNode = NewNode(AsgNodeKind.Identifier, fe.Identifier.Text, fe);
         _graph.AddEdge(varNode, nameNode, AsgEdgeKind.AstChild);
 
-        // Один Type. Что написано в исходнике — то и пишем.
+        
         var typeNode = NewNode(AsgNodeKind.Type, fe.Type.ToString(), fe.Type);
         _graph.AddEdge(varNode, typeNode, AsgEdgeKind.AstChild, "type");
 
@@ -161,7 +163,7 @@ class AsgBuilder
         var invNode = NewNode(AsgNodeKind.Invocation, "", inv);
         _graph.AddEdge(parent, invNode, AsgEdgeKind.AstChild);
 
-        // 1. Target / MethodName
+        
         switch (inv.Expression)
         {
             case MemberAccessExpressionSyntax ma:
@@ -169,7 +171,7 @@ class AsgBuilder
                 AddMethodName(ma.Name, invNode);
                 break;
 
-            case MemberBindingExpressionSyntax mb: // ← NEW
+            case MemberBindingExpressionSyntax mb:
                 AddMethodName(mb.Name, invNode);
                 break;
 
@@ -186,11 +188,11 @@ class AsgBuilder
                 break;
         }
 
-        // 2. ReturnType — placeholder, заполнит семантический проход
+        
         var returnTypeNode = NewNode(AsgNodeKind.Type, null, inv);
         _graph.AddEdge(invNode, returnTypeNode, AsgEdgeKind.AstChild);
 
-        // 3. ArgumentList
+        
         var argListNode = NewNode(AsgNodeKind.ArgumentList, "", inv.ArgumentList);
         _graph.AddEdge(invNode, argListNode, AsgEdgeKind.AstChild);
         foreach (var arg in inv.ArgumentList.Arguments)
@@ -201,10 +203,10 @@ class AsgBuilder
 
     private void WalkTarget(ExpressionSyntax target, AsgNode invNode)
     {
-        // Цель может быть простым идентификатором (Console, obj, this)
-        // или сложным выражением (obj.Field, GetObj()).
-        // Простой идентификатор — выделяем в отдельный Target-узел,
-        // сложное — обходим как обычно (там свои узлы).
+        
+        
+        
+        
         if (target is IdentifierNameSyntax id)
         {
             var t = NewNode(AsgNodeKind.Target, id.Identifier.Text, id);
@@ -233,11 +235,11 @@ class AsgBuilder
         var argNode = NewNode(AsgNodeKind.Argument, "", arg);
         _graph.AddEdge(parent, argNode, AsgEdgeKind.AstChild);
 
-        // Тип пока неизвестен — заглушка, заполнит семантический проход.
+        
         var typeNode = NewNode(AsgNodeKind.Type, "?", arg);
         _graph.AddEdge(argNode, typeNode, AsgEdgeKind.AstChild);
 
-        // Само выражение
+        
         Walk(arg.Expression, argNode);
 
         return argNode;
@@ -249,18 +251,18 @@ class AsgBuilder
         var declNode = NewNode(AsgNodeKind.VariableDeclaration, decl.Identifier.Text, decl);
         _graph.AddEdge(parent, declNode, AsgEdgeKind.AstChild);
 
-        // тип — берём у родительского VariableDeclaration
+        
         if (varDecl != null)
         {
             var typeNode = NewNode(AsgNodeKind.Type, varDecl.Type.ToString(), varDecl.Type);
             _graph.AddEdge(declNode, typeNode, AsgEdgeKind.AstChild);
         }
 
-        // имя
+        
         var nameNode = NewNode(AsgNodeKind.Identifier, decl.Identifier.Text, decl);
         _graph.AddEdge(declNode, nameNode, AsgEdgeKind.AstChild);
 
-        // значение — только если есть инициализатор
+        
         if (decl.Initializer != null)
             Walk(decl.Initializer.Value, declNode);
 
@@ -289,8 +291,8 @@ class AsgBuilder
         AssignmentExpressionSyntax a => AssignmentOperatorSymbol(a.Kind()),
         PrefixUnaryExpressionSyntax p => UnaryOperatorSymbol(p.Kind()),
         PostfixUnaryExpressionSyntax p => UnaryOperatorSymbol(p.Kind()),
-        PredefinedTypeSyntax p => p.Keyword.Text, // "string", "int", ...
-        TypeSyntax t => t.ToString(), // на случай других типов
+        PredefinedTypeSyntax p => p.Keyword.Text, 
+        TypeSyntax t => t.ToString(), 
         _ => node.Kind().ToString()
     };
 
@@ -347,7 +349,7 @@ class AsgBuilder
 
     private static string UnaryOperatorSymbol(SyntaxKind kind) => kind switch
     {
-        // prefix
+        
         SyntaxKind.UnaryPlusExpression => "+",
         SyntaxKind.UnaryMinusExpression => "-",
         SyntaxKind.LogicalNotExpression => "!",
@@ -356,12 +358,12 @@ class AsgBuilder
         SyntaxKind.PreDecrementExpression => "--",
         SyntaxKind.AddressOfExpression => "&",
         SyntaxKind.PointerIndirectionExpression => "*",
-        SyntaxKind.IndexExpression => "^", // ^x (index from end)
+        SyntaxKind.IndexExpression => "^", 
 
-        // postfix
+        
         SyntaxKind.PostIncrementExpression => "++",
         SyntaxKind.PostDecrementExpression => "--",
-        SyntaxKind.SuppressNullableWarningExpression => "!", // x! (null-forgiving)
+        SyntaxKind.SuppressNullableWarningExpression => "!", 
 
         _ => kind.ToString()
     };
@@ -371,19 +373,19 @@ class AsgBuilder
         var n = NewNode(AsgNodeKind.ObjectCreation, "", oce);
         _graph.AddEdge(parent, n, AsgEdgeKind.AstChild);
 
-        // 1. Target = тип создаваемого объекта
+        
         var typeNode = NewNode(AsgNodeKind.Target, oce.Type.ToString(), oce.Type);
         _graph.AddEdge(n, typeNode, AsgEdgeKind.AstChild, "target");
 
-        // 2. MethodName — синтетический узел (в синтаксисе имени нет)
+        
         var ctorName = NewNode(AsgNodeKind.MethodName, "#ctor", oce);
         _graph.AddEdge(n, ctorName, AsgEdgeKind.AstChild);
 
-        // 3. ReturnType — placeholder, заполнит семантика
+        
         var retType = NewNode(AsgNodeKind.Type, null, oce);
         _graph.AddEdge(n, retType, AsgEdgeKind.AstChild, "return");
 
-        // 4. ArgumentList
+        
         if (oce.ArgumentList != null)
         {
             var argListNode = NewNode(AsgNodeKind.ArgumentList, "", oce.ArgumentList);
@@ -392,7 +394,7 @@ class AsgBuilder
                 WalkArgument(arg, argListNode);
         }
 
-        // 5. Initializer { X = 1, Y = 2 } — обходим как обычно
+        
         if (oce.Initializer != null)
             Walk(oce.Initializer, n);
 
@@ -405,19 +407,19 @@ class AsgBuilder
         var n = NewNode(AsgNodeKind.ObjectCreation, "", ioce);
         _graph.AddEdge(parent, n, AsgEdgeKind.AstChild);
 
-        // Type-имени в синтаксисе нет — ставим placeholder
+        
         var typeNode = NewNode(AsgNodeKind.Target, null, ioce);
         _graph.AddEdge(n, typeNode, AsgEdgeKind.AstChild, "target");
 
-        // MethodName — синтетический "#ctor"
+        
         var ctorName = NewNode(AsgNodeKind.MethodName, "#ctor", ioce);
         _graph.AddEdge(n, ctorName, AsgEdgeKind.AstChild);
 
-        // ReturnType — placeholder
+        
         var retType = NewNode(AsgNodeKind.Type, null, ioce);
         _graph.AddEdge(n, retType, AsgEdgeKind.AstChild, "return");
 
-        // ArgumentList
+        
         if (ioce.ArgumentList != null)
         {
             var argListNode = NewNode(AsgNodeKind.ArgumentList, "", ioce.ArgumentList);
@@ -426,7 +428,7 @@ class AsgBuilder
                 WalkArgument(arg, argListNode);
         }
 
-        // Initializer
+        
         if (ioce.Initializer != null)
             Walk(ioce.Initializer, n);
 
@@ -441,19 +443,19 @@ class AsgBuilder
         switch (node)
         {
             case ArrayCreationExpressionSyntax ace:
-                // Тип элемента — из синтаксиса: ArrayTypeSyntax.ElementType
+                
                 var elemType = NewNode(AsgNodeKind.Type,
                     ace.Type.ElementType.ToString(), ace.Type.ElementType);
                 _graph.AddEdge(n, elemType, AsgEdgeKind.AstChild, "element");
 
-                // Тип результата — placeholder, заполнит семантика
+                
                 var retType = NewNode(AsgNodeKind.Type, null, ace);
                 _graph.AddEdge(n, retType, AsgEdgeKind.AstChild, "return");
 
-                // Размеры — по всем RankSpecifier и всем Sizes
-                // Для new int[n]     → один Identifier
-                // Для new int[2, 3]  → два Literal
-                // Для new int[] {...} → ноль (RankSpecifier пустой)
+                
+                
+                
+                
                 foreach (var rank in ace.Type.RankSpecifiers)
                 foreach (var size in rank.Sizes)
                 {
@@ -462,21 +464,21 @@ class AsgBuilder
                     Walk(size, sizeWrapper);
                 }
 
-                // Инициализатор { ... } — если есть
+                
                 if (ace.Initializer != null)
                     Walk(ace.Initializer, n);
                 break;
 
             case ImplicitArrayCreationExpressionSyntax iace:
-                // Тип элемента неизвестен из синтаксиса — placeholder
+                
                 var elemTypeI = NewNode(AsgNodeKind.Type, null, iace);
                 _graph.AddEdge(n, elemTypeI, AsgEdgeKind.AstChild, "element");
 
-                // Тип результата — placeholder
+                
                 var retTypeI = NewNode(AsgNodeKind.Type, null, iace);
                 _graph.AddEdge(n, retTypeI, AsgEdgeKind.AstChild, "return");
 
-                // Инициализатор обязателен в new[] {...}
+                
                 if (iace.Initializer != null)
                     Walk(iace.Initializer, n);
                 break;
@@ -490,10 +492,10 @@ class AsgBuilder
         var n = NewNode(AsgNodeKind.FieldAccess, "", ma);
         _graph.AddEdge(parent, n, AsgEdgeKind.AstChild);
 
-        // Target — то, у чего берём поле
+        
         WalkTarget(ma.Expression, n);
 
-        // FieldName — имя члена
+        
         var nameNode = NewNode(AsgNodeKind.FieldName, ma.Name.Identifier.Text, ma.Name);
         _graph.AddEdge(n, nameNode, AsgEdgeKind.AstChild);
 
@@ -505,8 +507,8 @@ class AsgBuilder
         var n = NewNode(AsgNodeKind.FieldAccess, "", mb);
         _graph.AddEdge(parent, n, AsgEdgeKind.AstChild);
 
-        // Target отсутствует — он унаследован от ConditionalAccessExpression.
-        // Можно оставить пустым; семантика заполнит Symbol у FieldName.
+        
+        
 
         var nameNode = NewNode(AsgNodeKind.FieldName, mb.Name.Identifier.Text, mb.Name);
         _graph.AddEdge(n, nameNode, AsgEdgeKind.AstChild);
@@ -519,14 +521,14 @@ class AsgBuilder
         var n = NewNode(AsgNodeKind.ElementAccess, "", ea);
         _graph.AddEdge(parent, n, AsgEdgeKind.AstChild);
 
-        // Target — на чём индексируем
+        
         WalkTarget(ea.Expression, n);
 
-        // ReturnType — placeholder под тип элемента
+        
         var retType = NewNode(AsgNodeKind.Type, null, ea);
         _graph.AddEdge(n, retType, AsgEdgeKind.AstChild, "return");
 
-        // ArgumentList — индексы. Переиспользуем WalkArgument
+        
         var argList = NewNode(AsgNodeKind.ArgumentList, "", ea.ArgumentList);
         _graph.AddEdge(n, argList, AsgEdgeKind.AstChild);
         foreach (var arg in ea.ArgumentList.Arguments)
